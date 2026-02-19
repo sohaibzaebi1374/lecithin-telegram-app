@@ -1,0 +1,21 @@
+# Fly.io config for a Telegram polling bot (no HTTP service needed)
+# 1) Run: fly launch (choose a unique app name), then replace your fly.toml with this file (or merge fields).
+# 2) Set the token as a secret:
+#    fly secrets set BOT_TOKEN="YOUR_TOKEN"
+# 3) Deploy:
+#    fly deploy
+
+app = "REPLACE_ME_WITH_YOUR_APP_NAME"
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PYTHONUNBUFFERED = "1"
+
+# This is a background worker app (no public services).
+# Fly Machines will keep running as long as you keep at least 1 Machine allocated for the app:
+#   fly scale count 1
+#
+# If you later add a web health endpoint, you can add [http_service] here.
