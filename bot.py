@@ -10,7 +10,8 @@ import openpyxl
 from dotenv import load_dotenv
 
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile,
+    ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -24,6 +25,43 @@ from telegram.ext import (
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 PREDICTOR_XLSX = os.path.join(BASE_DIR, "Predictor.xlsx")
+
+# -------------------- UI / STYLE --------------------
+
+MENU_LECITHIN = "🧪 ثبت لسیتین روزانه"
+MENU_EVAL = "📊 ارزیابی عملکرد کارکنان"
+MENU_REPORT = "📁 دریافت گزارش اکسل"
+MENU_HELP = "ℹ️ راهنما"
+
+MAIN_MENU_ROWS = [
+    [KeyboardButton(MENU_LECITHIN)],
+    [KeyboardButton(MENU_EVAL)],
+    [KeyboardButton(MENU_REPORT)],
+    [KeyboardButton(MENU_HELP)],
+]
+
+def main_menu_kb():
+    # resize + persistent menu like an app
+    return ReplyKeyboardMarkup(MAIN_MENU_ROWS, resize_keyboard=True, one_time_keyboard=False)
+
+def ui_header(title: str) -> str:
+    return (
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🏭 *{title}*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+    )
+
+def ui_tip(text: str) -> str:
+    return f"💡 {text}"
+
+def ui_ok(text: str) -> str:
+    return f"✅ {text}"
+
+def ui_warn(text: str) -> str:
+    return f"⚠️ {text}"
+
+def ui_err(text: str) -> str:
+    return f"🚨 {text}"
 
 LECITHIN_KEY = "lecithin_logs_v1"
 SHIFT_KEY = "gum_shift_logs_v1"
