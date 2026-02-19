@@ -501,12 +501,16 @@ async def lecithin_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await q.answer()
     site = q.data.split("_")[-1]
     context.user_data["site"] = site
+
+    # Kermanshah has extra options (expander + line mode)
     if site == "Kermanshah":
-                await q.message.reply_text(
+        await q.message.reply_text(
             "🔧 اکسپندر در مدار هست؟\n\nلطفاً وضعیت اکسپندر را مشخص کنید:",
             reply_markup=kb([[("✅ بله", "lec_exp_Yes"), ("❌ خیر", "lec_exp_No")]]),
         )
         return LECITHIN_EXPANDER
+
+    # Semnan: no expander / line mode step
     context.user_data["expander"] = None
     context.user_data["lineMode"] = None
     await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
