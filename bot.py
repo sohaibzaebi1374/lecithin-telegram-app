@@ -502,7 +502,7 @@ async def lecithin_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     site = q.data.split("_")[-1]
     context.user_data["site"] = site
     if site == "Kermanshah":
-                await q.message.reply_text(
+        await q.message.reply_text(
             "🔧 اکسپندر در مدار هست؟\n\nلطفاً وضعیت اکسپندر را مشخص کنید:",
             reply_markup=kb([[("✅ بله", "lec_exp_Yes"), ("❌ خیر", "lec_exp_No")]]),
         )
