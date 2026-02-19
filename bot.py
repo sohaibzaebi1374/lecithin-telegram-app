@@ -286,8 +286,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "سلام! یکی از بخش‌ها را انتخاب کنید:",
         reply_markup=kb([
-            [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👷 گام و شیفت‌ها", "menu_shift")],
-            [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی شیفت‌ها (Excel)", "export_shifts")]
+            [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👥 ارزیابی عملکرد کارکنان", "menu_shift")],
+            [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی ارزیابی (Excel)", "export_shifts")]
         ])
     )
     return MAIN_MENU
@@ -413,8 +413,8 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await q.message.reply_text(
             "سلام! یکی از بخش‌ها را انتخاب کنید:",
             reply_markup=kb([
-                [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👷 گام و شیفت‌ها", "menu_shift")],
-                [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی شیفت‌ها (Excel)", "export_shifts")]
+                [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👥 ارزیابی عملکرد کارکنان", "menu_shift")],
+                [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی ارزیابی (Excel)", "export_shifts")]
             ])
         )
         return MAIN_MENU
@@ -687,38 +687,95 @@ async def shift_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     sh = q.data.split("_")[-1]
     context.user_data["sh_shift"] = sh
 
-    await q.message.reply_text("لسیتین (بشکه) از کجا بیاد؟", reply_markup=kb([
-        [("از «لسیتین روزانه» (بخش ۱)", "sh_src_from_lec"), ("ورود دستی بشکه", "sh_src_manual")]
+    await q.message.reply_text("لسیتین از کدام بخش تأمین/محاسبه شود؟", reply_markup=kb([
+        [("از ثبت «لسیتین روزانه»", "sh_src_from_lec"), ("محاسبه با مدل", "sh_src_model")]
     ]))
     return SHIFT_SOURCE
 
 async def shift_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
-    src = q.data.split("_")[-1]
+
+    # Expected callbacks:
+    # - sh_src_from_lec  -> use saved "lecithin daily" record for the selected DAY (shift key "0")
+    # - sh_src_model     -> compute lecithin barrels using the model (like section 1), then continue to moisture
+    src = q.data.replace("sh_src_", "")
     context.user_data["sh_src"] = src
-    if src == "from":
-        # need site+inputs to compute? Actually from saved logs we already have barrels. We'll fetch.
+
+    if src == "from_lec":
         chat_id = update.effective_chat.id
         data = load_user_data(chat_id).get(LECITHIN_KEY, {})
         day = str(context.user_data["sh_day"])
-        sh = str(context.user_data["sh_shift"])
-        rec = data.get(day, {}).get(sh)
+
+        # Lecithin daily is saved by DAY only (shift key "0")
+        rec = data.get(day, {}).get("0")
         if not rec:
-            await q.message.reply_text("برای این روز/شیفت در بخش «لسیتین روزانه» داده‌ای ذخیره نشده. گزینه ورود دستی را انتخاب کنید.",
-                                       reply_markup=kb([[("ورود دستی بشکه", "sh_src_manual")]]))
+            await q.message.reply_text(
+                "برای این روز در بخش «لسیتین روزانه» داده‌ای ذخیره نشده. لطفاً گزینه «محاسبه با مدل» را انتخاب کنید.",
+                reply_markup=kb([[("محاسبه با مدل", "sh_src_model")]])
+            )
             return SHIFT_SOURCE
+
         context.user_data["barrels"] = float(rec["barrels"])
         context.user_data["ffa"] = float(rec["ffa"])
         context.user_data["ton"] = float(rec["ton"])
         context.user_data["hours"] = float(rec["hours"])
-        # Now ask moisture
+
         await q.message.reply_text("درصد رطوبت گام را وارد کنید (مثلاً 45):")
         return SHIFT_MOISTURE
 
-    # manual path: we still want ffa/ton/hours for score and record
+    # Model path: ask for site + (optional) expander/line, then FFA/ton/hours, then we compute barrels.
+    await q.message.reply_text(
+        "برای محاسبه لسیتین با مدل، ابتدا سایت را انتخاب کنید:",
+        reply_markup=kb([[("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")]])
+    )
+    return SHIFT_SITE
+
+
+async def shift_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+    site = q.data.split("_")[-1]
+    context.user_data["site"] = site
+
+    if site == "Kermanshah":
+        await q.message.reply_text(
+            "🔧 اکسپندر در مدار هست؟\n\nلطفاً وضعیت اکسپندر را مشخص کنید:",
+            reply_markup=kb([[("✅ بله", "sh_exp_Yes"), ("❌ خیر", "sh_exp_No")]]),
+        )
+        return SHIFT_EXPANDER
+
+    # Semnan: no expander/line mode
+    context.user_data["expander"] = None
+    context.user_data["lineMode"] = None
     await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
     return SHIFT_FFA
+
+
+async def shift_expander(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+    exp = q.data.split("_")[-1]
+    context.user_data["expander"] = exp
+
+    await q.message.reply_text(
+        "🕹حالت خط را انتخاب کنید:",
+        reply_markup=kb([[("نرمال", "sh_line_Normal"), ("کلزا-سویا", "sh_line_CanolaSoya")]]),
+    )
+    return SHIFT_LINE
+
+
+async def shift_line(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+    line = q.data.split("_")[-1]
+    context.user_data["lineMode"] = line
+
+    await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
+    return SHIFT_FFA
+
+
+
 
 async def shift_ffa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -747,8 +804,26 @@ async def shift_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text("ساعت نامعتبر است. دوباره وارد کنید:")
         return SHIFT_HOURS
     context.user_data["hours"] = hours
-    await update.message.reply_text("لسیتین تولیدی (بشکه) را وارد کنید (مثلاً 44.93):")
-    return SHIFT_BARRELS_MANUAL
+
+    # Compute lecithin barrels using the model (same as section 1)
+    site = context.user_data.get("site")
+    exp = context.user_data.get("expander")
+    line = context.user_data.get("lineMode")
+    ffa = float(context.user_data.get("ffa"))
+    ton = float(context.user_data.get("ton"))
+
+    try:
+        barrels = calc_lecithin(site, ffa, ton, hours, exp, line)
+    except Exception as e:
+        await update.message.reply_text(f"خطا در محاسبه لسیتین با مدل: {e}
+لطفاً دوباره ساعات را وارد کنید:")
+        return SHIFT_HOURS
+
+    context.user_data["barrels"] = float(barrels)
+
+    await update.message.reply_text("درصد رطوبت گام را وارد کنید (مثلاً 45):")
+    return SHIFT_MOISTURE
+
 
 async def shift_barrels_manual(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -783,7 +858,7 @@ async def shift_moisture(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     sh = context.user_data["sh_shift"]
 
     msg = (
-        f"👷 عملکرد شیفت (روز {day} - شیفت {sh})\n"
+        f"👥 ارزیابی عملکرد کارکنان (روز {day} - شیفت {sh})\n"
         f"- لسیتین: <b>{barrels:.3f}</b> بشکه\n"
         f"- لسیتین: <b>{metrics['lecithinKg']:.1f}</b> کیلوگرم\n"
         f"- وزن گام: <b>{metrics['gumKg']:.1f}</b> کیلوگرم\n"
@@ -887,11 +962,13 @@ def main() -> None:
 
             SHIFT_DAY: [CallbackQueryHandler(shift_day, pattern=r"^sh_day_\d+$")],
             SHIFT_SHIFT: [CallbackQueryHandler(shift_shift, pattern=r"^sh_shift_[123]$")],
-            SHIFT_SOURCE: [CallbackQueryHandler(shift_source, pattern=r"^sh_src_(from_lec|manual)$")],
+            SHIFT_SOURCE: [CallbackQueryHandler(shift_source, pattern=r"^sh_src_(from_lec|model)$")],
+            SHIFT_SITE: [CallbackQueryHandler(shift_site, pattern=r"^sh_site_(Semnan|Kermanshah)$")],
+            SHIFT_EXPANDER: [CallbackQueryHandler(shift_expander, pattern=r"^sh_exp_(Yes|No)$")],
+            SHIFT_LINE: [CallbackQueryHandler(shift_line, pattern=r"^sh_line_(Normal|CanolaSoya)$")],
             SHIFT_FFA: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_ffa)],
             SHIFT_TON: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_ton)],
             SHIFT_HOURS: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_hours)],
-            SHIFT_BARRELS_MANUAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_barrels_manual)],
             SHIFT_MOISTURE: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_moisture)],
             SHIFT_SAVE_CONFIRM: [CallbackQueryHandler(shift_save_confirm, pattern=r"^sh_save_(yes|no)$")],
         },
