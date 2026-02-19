@@ -635,7 +635,7 @@ async def lecithin_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [(f"روز {i}", f"lec_day_{i}") for i in range(11,16)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(16,21)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(21,26)],
-            [(f"روز {i}", f"lec_day_{i}") for i in range(26,31)],
+            [(f"روز {i}", f"lec_day_{i}") for i in range(26,32)],
         ])
     )
     return LECITHIN_DAY
@@ -755,7 +755,7 @@ async def shift_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             [(f"روز {i}", f"sh_day_{i}") for i in range(11, 16)],
             [(f"روز {i}", f"sh_day_{i}") for i in range(16, 21)],
             [(f"روز {i}", f"sh_day_{i}") for i in range(21, 26)],
-            [(f"روز {i}", f"sh_day_{i}") for i in range(26, 31)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(26, 32)],
             [("بازگشت ⬅️", "back_main")],
         ]),
     )
