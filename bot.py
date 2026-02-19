@@ -27,21 +27,19 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 PREDICTOR_XLSX = os.path.join(BASE_DIR, "Predictor.xlsx")
 
 # -------------------- UI / STYLE --------------------
-
 MENU_LECITHIN = "🧪 ثبت لسیتین روزانه"
 MENU_EVAL = "📊 ارزیابی عملکرد کارکنان"
-MENU_REPORT = "📁 دریافت گزارش اکسل"
+MENU_REPORTS = "📁 دریافت گزارش اکسل"
 MENU_HELP = "ℹ️ راهنما"
 
 MAIN_MENU_ROWS = [
     [KeyboardButton(MENU_LECITHIN)],
     [KeyboardButton(MENU_EVAL)],
-    [KeyboardButton(MENU_REPORT)],
+    [KeyboardButton(MENU_REPORTS)],
     [KeyboardButton(MENU_HELP)],
 ]
 
 def main_menu_kb():
-    # resize + persistent menu like an app
     return ReplyKeyboardMarkup(MAIN_MENU_ROWS, resize_keyboard=True, one_time_keyboard=False)
 
 def ui_header(title: str) -> str:
@@ -50,18 +48,6 @@ def ui_header(title: str) -> str:
         f"🏭 *{title}*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
     )
-
-def ui_tip(text: str) -> str:
-    return f"💡 {text}"
-
-def ui_ok(text: str) -> str:
-    return f"✅ {text}"
-
-def ui_warn(text: str) -> str:
-    return f"⚠️ {text}"
-
-def ui_err(text: str) -> str:
-    return f"🚨 {text}"
 
 LECITHIN_KEY = "lecithin_logs_v1"
 SHIFT_KEY = "gum_shift_logs_v1"
@@ -320,47 +306,73 @@ def kb(rows: List[List[Tuple[str, str]]]) -> InlineKeyboardMarkup:
         for row in rows
     ])
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+
+async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    msg = (
+        ui_header("منوی اصلی") +
+        "یکی از گزینه‌های زیر را انتخاب کنید 👇\n\n"
+        f"{MENU_LECITHIN}\n{MENU_EVAL}\n{MENU_REPORTS}\n{MENU_HELP}"
+    )
+    await update.message.reply_text(msg, reply_markup=main_menu_kb(), parse_mode=ParseMode.MARKDOWN)
+    return MAIN_MENU
+
+async def start_lecithin_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.clear()
     await update.message.reply_text(
-        "سلام! یکی از بخش‌ها را انتخاب کنید:",
+        "سایت را انتخاب کنید:",
+        reply_markup=kb([[("سمنان", "lec_site_Semnan"), ("کرمانشاه", "lec_site_Kermanshah")]])
+    )
+    return LECITHIN_SITE
+
+async def start_shift_from_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(
+        "روز را انتخاب کنید:",
         reply_markup=kb([
-            [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👥 ارزیابی عملکرد کارکنان", "menu_shift")],
-            [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی ارزیابی (Excel)", "export_shifts")]
+            [(f"روز {i}", f"sh_day_{i}") for i in range(1,6)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(6,11)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(11,16)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(16,21)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(21,26)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(26,31)],
+            [("بازگشت ⬅️", "back_main")]
         ])
+    )
+    return SHIFT_DAY
+
+async def show_reports_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text(
+        ui_header("گزارش‌ها") + "کدام گزارش را می‌خواهید؟",
+        reply_markup=kb([
+            [("📤 خروجی لسیتین (Excel)", "export_lecithin")],
+            [("📤 خروجی ارزیابی (Excel)", "export_shifts")],
+            [("بازگشت ⬅️", "back_main")]
+        ]),
+        parse_mode=ParseMode.MARKDOWN
     )
     return MAIN_MENU
 
-# ---------------------------
-# Export handlers
-# ---------------------------
-def _write_csv(out_path: str, rows: list, fieldnames: list) -> None:
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        w.writeheader()
-        for r in rows:
-            w.writerow(r)
+async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    txt = (update.message.text or "").strip()
+    if txt == MENU_LECITHIN:
+        return await start_lecithin_from_message(update, context)
+    if txt == MENU_EVAL:
+        return await start_shift_from_message(update, context)
+    if txt == MENU_REPORTS:
+        return await show_reports_menu(update, context)
+    if txt == MENU_HELP:
+        help_msg = (
+            ui_header("راهنما") +
+            "• برای *ثبت لسیتین روزانه*، گزینه 🧪 را بزنید.\n"
+            "• برای *ارزیابی عملکرد کارکنان*، گزینه 📊 را بزنید.\n"
+            "• برای دریافت فایل خروجی، گزینه 📁 را بزنید.\n\n"
+            "برای برگشت به منو، دستور /menu را بزنید."
+        )
+        await update.message.reply_text(help_msg, reply_markup=main_menu_kb(), parse_mode=ParseMode.MARKDOWN)
+        return MAIN_MENU
+    return MAIN_MENU
 
-def _write_xlsx(out_path: str, rows: list, fieldnames: list) -> None:
-    # Lightweight Excel writer using openpyxl (no pandas).
-    from openpyxl import Workbook
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "data"
-    ws.append(fieldnames)
-    for r in rows:
-        ws.append([r.get(k) for k in fieldnames])
-    wb.save(out_path)
-
-
-def _sort_day_shift(rows: list) -> list:
-    def to_int(x):
-        try:
-            return int(str(x))
-        except Exception:
-            return 0
-    return sorted(rows, key=lambda r: (to_int(r.get("Day")), to_int(r.get("Shift"))))
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    return await show_menu(update, context)
 
 async def export_lecithin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
