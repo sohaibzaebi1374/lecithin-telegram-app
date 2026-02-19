@@ -588,6 +588,13 @@ async def lecithin_ton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def lecithin_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         hours = float(update.message.text.strip())
+
+    # اصلاح ساعات برای سایت سمنان
+    if site == "Semnan" and hours < 24:
+        difference = 24 - hours
+        bonus = difference / 2
+        hours = hours + bonus
+
     except Exception:
         await update.message.reply_text("ساعت نامعتبر است. دوباره وارد کنید:")
         return LECITHIN_HOURS
@@ -635,7 +642,7 @@ async def lecithin_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [(f"روز {i}", f"lec_day_{i}") for i in range(11,16)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(16,21)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(21,26)],
-            [(f"روز {i}", f"lec_day_{i}") for i in range(26,32)],
+            [(f"روز {i}", f"lec_day_{i}") for i in range(26,31)],
         ])
     )
     return LECITHIN_DAY
@@ -755,7 +762,7 @@ async def shift_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             [(f"روز {i}", f"sh_day_{i}") for i in range(11, 16)],
             [(f"روز {i}", f"sh_day_{i}") for i in range(16, 21)],
             [(f"روز {i}", f"sh_day_{i}") for i in range(21, 26)],
-            [(f"روز {i}", f"sh_day_{i}") for i in range(26, 32)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(26, 31)],
             [("بازگشت ⬅️", "back_main")],
         ]),
     )
@@ -810,6 +817,13 @@ async def shift_ton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def shift_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         hours = float(update.message.text.strip())
+
+    # اصلاح ساعات برای سایت سمنان
+    if site == "Semnan" and hours < 24:
+        difference = 24 - hours
+        bonus = difference / 2
+        hours = hours + bonus
+
     except Exception:
         await update.message.reply_text("ساعت نامعتبر است. دوباره وارد کنید:")
         return SHIFT_HOURS
