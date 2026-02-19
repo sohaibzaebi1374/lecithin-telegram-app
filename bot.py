@@ -815,8 +815,7 @@ async def shift_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     try:
         barrels = calc_lecithin(site, ffa, ton, hours, exp, line)
     except Exception as e:
-        await update.message.reply_text(f"خطا در محاسبه لسیتین با مدل: {e}
-لطفاً دوباره ساعات را وارد کنید:")
+        await update.message.reply_text(f"خطا در محاسبه لسیتین با مدل: {e}\nلطفاً دوباره ساعات را وارد کنید:")
         return SHIFT_HOURS
 
     context.user_data["barrels"] = float(barrels)
