@@ -27,7 +27,7 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 PREDICTOR_XLSX = os.path.join(BASE_DIR, "Predictor.xlsx")
 
 # -------------------- UI / STYLE --------------------
-MENU_LECITHIN = "🧪 ثبت لسیتین روزانه"
+MENU_LECITHIN = "🧪 پیش‌بینی روزانه لسیتین"
 MENU_EVAL = "📊 ارزیابی عملکرد کارکنان"
 MENU_REPORTS = "📁 دریافت گزارش اکسل"
 MENU_HELP = "ℹ️ راهنما"
@@ -368,9 +368,8 @@ async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             "برای برگشت به منو، دستور /menu را بزنید."
         )
         await update.message.reply_text(help_msg, reply_markup=main_menu_kb(), parse_mode=ParseMode.MARKDOWN)
-        return MAIN_MENU
-    return MAIN_MENU
-
+    return None
+    return None
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await show_menu(update, context)
 
