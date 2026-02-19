@@ -226,8 +226,8 @@ def compute_shift_metrics(barrels: float, moisture: float, ffa: float) -> Dict[s
         raise ValueError("درصد رطوبت نامعتبر است (باید بین 0 و 100 باشد).")
     lecithin_kg = barrels * 200.0
     gum_kg = lecithin_kg * 100.0 / (100.0 - moisture)
-    gum_per_hour = gum_kg / 8.0
-    gum_per_min = gum_kg / 480.0
+    gum_per_hour = gum_kg / 24.0
+    gum_per_min = gum_kg / 1440.0
     score = gum_per_min / ffa if ffa and ffa > 0 else float("nan")
     return {
         "lecithinKg": lecithin_kg,
@@ -424,13 +424,12 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await q.message.reply_text("سایت را انتخاب کنید:", reply_markup=kb([[("سمنان", "lec_site_Semnan"), ("کرمانشاه", "lec_site_Kermanshah")]]))
         return LECITHIN_SITE
     if q.data == "menu_shift":
-        await q.message.reply_text("روز را انتخاب کنید:", reply_markup=kb([[ (f"روز {i}", f"sh_day_{i}") for i in range(1,6) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(6,11) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(11,16) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(16,21) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(21,26) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(26,31) ]]))
-        return SHIFT_DAY
+        context.user_data.clear()
+        await q.message.reply_text(
+            "ابتدا سایت را انتخاب کنید:",
+            reply_markup=kb([[("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")]])
+        )
+        return SHIFT_SITE
     if q.data == "export_lecithin":
         await export_lecithin(update, context)
         return MAIN_MENU
@@ -702,6 +701,15 @@ async def shift_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     src = q.data.replace("sh_src_", "")
     context.user_data["sh_src"] = src
 
+
+    # اگر سایت قبلاً انتخاب نشده باشد (حالت‌های قدیمی)، اینجا می‌پرسیم.
+    if "site" not in context.user_data:
+        await q.message.reply_text(
+            "ابتدا سایت را انتخاب کنید:",
+            reply_markup=kb([[("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")]]),
+        )
+        return SHIFT_SITE
+
     if src == "from_lec":
         chat_id = update.effective_chat.id
         data = load_user_data(chat_id).get(LECITHIN_KEY, {})
@@ -733,23 +741,25 @@ async def shift_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 
 async def shift_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Select site for employee evaluation BEFORE choosing day."""
     q = update.callback_query
     await q.answer()
     site = q.data.split("_")[-1]
     context.user_data["site"] = site
 
-    if site == "Kermanshah":
-        await q.message.reply_text(
-            "🔧 اکسپندر در مدار هست؟\n\nلطفاً وضعیت اکسپندر را مشخص کنید:",
-            reply_markup=kb([[("✅ بله", "sh_exp_Yes"), ("❌ خیر", "sh_exp_No")]]),
-        )
-        return SHIFT_EXPANDER
-
-    # Semnan: no expander/line mode
-    context.user_data["expander"] = None
-    context.user_data["lineMode"] = None
-    await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
-    return SHIFT_FFA
+    await q.message.reply_text(
+        "روز را انتخاب کنید:",
+        reply_markup=kb([
+            [(f"روز {i}", f"sh_day_{i}") for i in range(1, 6)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(6, 11)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(11, 16)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(16, 21)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(21, 26)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(26, 31)],
+            [("بازگشت ⬅️", "back_main")],
+        ]),
+    )
+    return SHIFT_DAY
 
 
 async def shift_expander(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
