@@ -335,7 +335,7 @@ async def export_lecithin(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             lec_kg = (barrels * 200) if barrels is not None else None
             rows.append({
                 "Day": day,
-                "Shift": sh,
+                "Shift": ("" if str(sh) == "0" else sh),
                 "Site": rec.get("site"),
                 "FFA": rec.get("ffa"),
                 "OilTon": ton,
@@ -373,7 +373,7 @@ async def export_shifts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         for sh, rec in shifts.items():
             rows.append({
                 "Day": day,
-                "Shift": sh,
+                "Shift": ("" if str(sh) == "0" else sh),
                 "FFA": rec.get("ffa"),
                 "OilTon": rec.get("ton"),
                 "Hours": rec.get("hours"),
@@ -447,8 +447,46 @@ async def lecithin_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await q.answer()
     day = int(q.data.split("_")[-1])
     context.user_data["lec_day"] = day
-    await q.message.reply_text("شیفت را انتخاب کنید:", reply_markup=kb([[("شیفت 1", "lec_shift_1"), ("شیفت 2", "lec_shift_2"), ("شیفت 3", "lec_shift_3")]]))
-    return LECITHIN_SHIFT
+
+    pending = context.user_data.get("pending_lecithin")
+    if not pending:
+        await q.message.reply_text("اطلاعات محاسبه پیدا نشد. لطفاً دوباره از /start شروع کنید.")
+        return MAIN_MENU
+
+    # For lecithin we only register by DAY (no shift). We store it under shift key '0'.
+    sh_key = "0"
+
+    chat_id = update.effective_chat.id
+    user_data = load_user_data(chat_id)
+    lec = user_data.get(LECITHIN_KEY, {})
+    day_key = str(day)
+    lec.setdefault(day_key, {})
+    lec[day_key][sh_key] = {
+        "site": pending.get("site"),
+        "expander": pending.get("expander"),
+        "lineMode": pending.get("lineMode"),
+        "ffa": pending.get("ffa"),
+        "ton": pending.get("ton"),
+        "hours": pending.get("hours"),
+        "barrels": pending.get("barrels"),
+    }
+    user_data[LECITHIN_KEY] = lec
+    save_user_data(chat_id, user_data)
+
+    barrels = float(pending.get("barrels") or 0.0)
+    ton = float(pending.get("ton") or 0.0)
+    kg = barrels * 200.0
+    kg_per_ton = (kg / ton) if ton else 0.0
+
+    await q.message.reply_text(
+        f"✅ ثبت شد (روز {day})\n\n"
+        f"لسیتین: {barrels:.3f} بشکه | {kg:.1f} کیلوگرم | {kg_per_ton:.2f} کیلوگرم/تن\n\n"
+        f"اگر خروجی اکسل می‌خواهید، از منوی اصلی «📤 خروجی لسیتین (Excel)» را بزنید.",
+        reply_markup=kb([[("⬅️ منوی اصلی", "back_main")]]),
+    )
+
+    context.user_data.pop("pending_lecithin", None)
+    return MAIN_MENU
 
 async def lecithin_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
