@@ -932,6 +932,15 @@ async def shift_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             return SHIFT_SOURCE
 
         context.user_data["barrels"] = float(rec.get("barrels") or 0.0)
+        # اگر در ثبت «پیش‌بینی روزانه لسیتین» موجود باشد، برای گزارش ذخیره می‌کنیم
+        try:
+            context.user_data["ton"] = float(rec.get("ton")) if rec.get("ton") not in (None, "") else None
+        except Exception:
+            context.user_data["ton"] = None
+        try:
+            context.user_data["hours"] = float(rec.get("hours")) if rec.get("hours") not in (None, "") else None
+        except Exception:
+            context.user_data["hours"] = None
         # اگر ffa موجود بود برای امتیاز استفاده می‌کنیم
         ffa_val = rec.get("ffa")
         try:
@@ -954,6 +963,8 @@ async def shift_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     )
     # ffa را در این حالت نداریم
     context.user_data["ffa"] = None
+    context.user_data["ton"] = None
+    context.user_data["hours"] = None
     return SHIFT_BARRELS_MANUAL
 
 
@@ -1061,17 +1072,19 @@ async def shift_save_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE)
     metrics = context.user_data["metrics"]
 
     rec = {
-        "ffa": context.user_data["ffa"],
-        "ton": context.user_data["ton"],
-        "hours": context.user_data["hours"],
-        "barrels": context.user_data["barrels"],
-        "moisture": context.user_data["moisture"],
-        "moistureStatus": context.user_data["moistureStatus"],
-        "lecithinKg": metrics["lecithinKg"],
-        "gumKg": metrics["gumKg"],
-        "gumKgPerHour": metrics["gumKgPerHour"],
-        "gumKgPerMin": metrics["gumKgPerMin"],
-        "score": metrics["score"],
+        "site": context.user_data.get("site"),
+        "source": context.user_data.get("sh_src"),
+        "ffa": context.user_data.get("ffa"),
+        "ton": context.user_data.get("ton"),
+        "hours": context.user_data.get("hours"),
+        "barrels": context.user_data.get("barrels"),
+        "moisture": context.user_data.get("moisture"),
+        "moistureStatus": context.user_data.get("moistureStatus"),
+        "lecithinKg": metrics.get("lecithinKg"),
+        "gumKgDaily": metrics.get("gumKg"),
+        "gumKgPerHour": metrics.get("gumKgPerHour"),
+        "gumKgPerMin": metrics.get("gumKgPerMin"),
+        "score": metrics.get("score"),
         "bestShift": "—",
     }
 
