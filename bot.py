@@ -388,7 +388,7 @@ async def show_main_menu(message, *, text_prefix: str = "سلام! یکی از �
     await message.reply_text(
         text_prefix,
         reply_markup=kb([
-            [("🧪 پیش‌بینی روزانه لسیتین", "menu_lecithin"), ("📊 ارزیابی عملکرد کارکنان", "menu_shift")],
+            [("🧪 پیش‌بینی روزانه لسیتین", "menu_lecithin"), ("📊 ارزیابی عملکرد شیفت", "menu_shift")],
             [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی ارزیابی (Excel)", "export_shifts")]
         ])
     )
