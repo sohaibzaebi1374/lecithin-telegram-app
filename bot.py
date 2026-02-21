@@ -46,6 +46,107 @@ def save_user_data(chat_id: int, data: Dict[str, Any]) -> None:
     with open(_user_file(chat_id), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+
+def _admin_ids() -> set[int]:
+    """
+    خواندن لیست ادمین‌ها از ENV.
+    مقدار پیشنهادی: ADMIN_CHAT_ID="12345,67890"
+    """
+    raw = os.getenv("ADMIN_CHAT_ID", "").strip()
+    if not raw:
+        return set()
+    ids: set[int] = set()
+    for part in raw.replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.add(int(part))
+        except ValueError:
+            continue
+    return ids
+
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """نمایش Chat ID برای ست کردن ADMIN_CHAT_ID در Railway."""
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    user_id = update.effective_user.id if update.effective_user else None
+    msg = f"""🆔 Chat ID: {chat_id}
+👤 User ID: {user_id}
+
+برای فعال‌سازی آمار مدیریتی، در Railway یک متغیر بسازید:
+ADMIN_CHAT_ID="{chat_id}"
+"""
+    await update.message.reply_text(msg)
+
+async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    آمار کلی استفاده از ربات (فقط ادمین).
+    - تعداد کاربران (براساس تعداد فایل‌های data/*.json)
+    - تعداد ثبت‌های لسیتین و ارزیابی
+    """
+    chat_id = update.effective_chat.id if update.effective_chat else 0
+    admins = _admin_ids()
+
+    if not admins:
+        msg = """⚠️ آمار مدیریتی فعال نیست.
+ابتدا در Railway یک متغیر ENV بسازید:
+ADMIN_CHAT_ID="CHAT_ID"
+
+برای گرفتن Chat ID خودتان دستور /myid را بزنید.
+"""
+        await update.message.reply_text(msg)
+        return
+
+    if chat_id not in admins:
+        await update.message.reply_text("⛔️ دسترسی ندارید.")
+        return
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    user_files = [fn for fn in os.listdir(DATA_DIR) if fn.endswith(".json")]
+
+    users = len(user_files)
+    lecithin_count = 0
+    shift_count = 0
+    sites: dict[str, int] = {"Semnan": 0, "Kermanshah": 0}
+
+    for fn in user_files:
+        try:
+            with open(os.path.join(DATA_DIR, fn), "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+
+        lec = data.get(LECITHIN_KEY, {}) if isinstance(data, dict) else {}
+        shf = data.get(SHIFT_KEY, {}) if isinstance(data, dict) else {}
+
+        if isinstance(lec, dict):
+            lecithin_count += len(lec)
+            for _k, rec in lec.items():
+                if isinstance(rec, dict):
+                    s = rec.get("site")
+                    if s in sites:
+                        sites[s] += 1
+
+        if isinstance(shf, dict):
+            shift_count += len(shf)
+            for _k, rec in shf.items():
+                if isinstance(rec, dict):
+                    s = rec.get("site")
+                    if s in sites:
+                        sites[s] += 1
+
+    msg = f"""📊 *آمار مدیریتی ربات*
+
+👥 تعداد کاربران: *{users}*
+🧪 تعداد ثبت‌های پیش‌بینی لسیتین: *{lecithin_count}*
+👷 تعداد ثبت‌های ارزیابی عملکرد: *{shift_count}*
+
+🏭 ثبت‌ها به تفکیک سایت (تقریبی):
+• سمنان: *{sites['Semnan']}*
+• کرمانشاه: *{sites['Kermanshah']}*
+"""
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+
 # ---------------------------
 # Excel -> grid cache
 # ---------------------------
@@ -226,8 +327,8 @@ def compute_shift_metrics(barrels: float, moisture: float, ffa: float) -> Dict[s
         raise ValueError("درصد رطوبت نامعتبر است (باید بین 0 و 100 باشد).")
     lecithin_kg = barrels * 200.0
     gum_kg = lecithin_kg * 100.0 / (100.0 - moisture)
-    gum_per_hour = gum_kg / 24.0
-    gum_per_min = gum_kg / 1440.0
+    gum_per_hour = gum_kg / 8.0
+    gum_per_min = gum_kg / 480.0
     score = gum_per_min / ffa if ffa and ffa > 0 else float("nan")
     return {
         "lecithinKg": lecithin_kg,
@@ -286,8 +387,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "سلام! یکی از بخش‌ها را انتخاب کنید:",
         reply_markup=kb([
-            [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👥 ارزیابی عملکرد کارکنان", "menu_shift")],
-            [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی ارزیابی (Excel)", "export_shifts")]
+            [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👷 گام و شیفت‌ها", "menu_shift")],
+            [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی شیفت‌ها (Excel)", "export_shifts")]
         ])
     )
     return MAIN_MENU
@@ -335,7 +436,7 @@ async def export_lecithin(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             lec_kg = (barrels * 200) if barrels is not None else None
             rows.append({
                 "Day": day,
-                "Shift": ("" if str(sh) == "0" else sh),
+                "Shift": sh,
                 "Site": rec.get("site"),
                 "FFA": rec.get("ffa"),
                 "OilTon": ton,
@@ -373,7 +474,7 @@ async def export_shifts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         for sh, rec in shifts.items():
             rows.append({
                 "Day": day,
-                "Shift": ("" if str(sh) == "0" else sh),
+                "Shift": sh,
                 "FFA": rec.get("ffa"),
                 "OilTon": rec.get("ton"),
                 "Hours": rec.get("hours"),
@@ -413,8 +514,8 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await q.message.reply_text(
             "سلام! یکی از بخش‌ها را انتخاب کنید:",
             reply_markup=kb([
-                [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👥 ارزیابی عملکرد کارکنان", "menu_shift")],
-                [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی ارزیابی (Excel)", "export_shifts")]
+                [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👷 گام و شیفت‌ها", "menu_shift")],
+                [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی شیفت‌ها (Excel)", "export_shifts")]
             ])
         )
         return MAIN_MENU
@@ -424,12 +525,13 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await q.message.reply_text("سایت را انتخاب کنید:", reply_markup=kb([[("سمنان", "lec_site_Semnan"), ("کرمانشاه", "lec_site_Kermanshah")]]))
         return LECITHIN_SITE
     if q.data == "menu_shift":
-        context.user_data.clear()
-        await q.message.reply_text(
-            "ابتدا سایت را انتخاب کنید:",
-            reply_markup=kb([[("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")]])
-        )
-        return SHIFT_SITE
+        await q.message.reply_text("روز را انتخاب کنید:", reply_markup=kb([[ (f"روز {i}", f"sh_day_{i}") for i in range(1,6) ],
+                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(6,11) ],
+                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(11,16) ],
+                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(16,21) ],
+                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(21,26) ],
+                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(26,31) ]]))
+        return SHIFT_DAY
     if q.data == "export_lecithin":
         await export_lecithin(update, context)
         return MAIN_MENU
@@ -446,46 +548,8 @@ async def lecithin_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await q.answer()
     day = int(q.data.split("_")[-1])
     context.user_data["lec_day"] = day
-
-    pending = context.user_data.get("pending_lecithin")
-    if not pending:
-        await q.message.reply_text("اطلاعات محاسبه پیدا نشد. لطفاً دوباره از /start شروع کنید.")
-        return MAIN_MENU
-
-    # For lecithin we only register by DAY (no shift). We store it under shift key '0'.
-    sh_key = "0"
-
-    chat_id = update.effective_chat.id
-    user_data = load_user_data(chat_id)
-    lec = user_data.get(LECITHIN_KEY, {})
-    day_key = str(day)
-    lec.setdefault(day_key, {})
-    lec[day_key][sh_key] = {
-        "site": pending.get("site"),
-        "expander": pending.get("expander"),
-        "lineMode": pending.get("lineMode"),
-        "ffa": pending.get("ffa"),
-        "ton": pending.get("ton"),
-        "hours": pending.get("hours"),
-        "barrels": pending.get("barrels"),
-    }
-    user_data[LECITHIN_KEY] = lec
-    save_user_data(chat_id, user_data)
-
-    barrels = float(pending.get("barrels") or 0.0)
-    ton = float(pending.get("ton") or 0.0)
-    kg = barrels * 200.0
-    kg_per_ton = (kg / ton) if ton else 0.0
-
-    await q.message.reply_text(
-        f"✅ ثبت شد (روز {day})\n\n"
-        f"لسیتین: {barrels:.3f} بشکه | {kg:.1f} کیلوگرم | {kg_per_ton:.2f} کیلوگرم/تن\n\n"
-        f"اگر خروجی اکسل می‌خواهید، از منوی اصلی «📤 خروجی لسیتین (Excel)» را بزنید.",
-        reply_markup=kb([[("⬅️ منوی اصلی", "back_main")]]),
-    )
-
-    context.user_data.pop("pending_lecithin", None)
-    return MAIN_MENU
+    await q.message.reply_text("شیفت را انتخاب کنید:", reply_markup=kb([[("شیفت 1", "lec_shift_1"), ("شیفت 2", "lec_shift_2"), ("شیفت 3", "lec_shift_3")]]))
+    return LECITHIN_SHIFT
 
 async def lecithin_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
@@ -538,12 +602,16 @@ async def lecithin_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await q.answer()
     site = q.data.split("_")[-1]
     context.user_data["site"] = site
+
+    # Kermanshah has extra options (expander + line mode)
     if site == "Kermanshah":
         await q.message.reply_text(
             "🔧 اکسپندر در مدار هست؟\n\nلطفاً وضعیت اکسپندر را مشخص کنید:",
             reply_markup=kb([[("✅ بله", "lec_exp_Yes"), ("❌ خیر", "lec_exp_No")]]),
         )
         return LECITHIN_EXPANDER
+
+    # Semnan: no expander / line mode step
     context.user_data["expander"] = None
     context.user_data["lineMode"] = None
     await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
@@ -588,6 +656,13 @@ async def lecithin_ton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 async def lecithin_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         hours = float(update.message.text.strip())
+
+        # اصلاح ساعات برای سایت سمنان
+        site = context.user_data.get("site")
+        if site == "Semnan" and hours < 24:
+            difference = 24 - hours
+            bonus = difference / 2
+            hours = hours + bonus
     except Exception:
         await update.message.reply_text("ساعت نامعتبر است. دوباره وارد کنید:")
         return LECITHIN_HOURS
@@ -635,7 +710,7 @@ async def lecithin_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [(f"روز {i}", f"lec_day_{i}") for i in range(11,16)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(16,21)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(21,26)],
-            [(f"روز {i}", f"lec_day_{i}") for i in range(26,32)],
+            [(f"روز {i}", f"lec_day_{i}") for i in range(26,31)],
         ])
     )
     return LECITHIN_DAY
@@ -686,106 +761,38 @@ async def shift_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     sh = q.data.split("_")[-1]
     context.user_data["sh_shift"] = sh
 
-    await q.message.reply_text("لسیتین از کدام بخش تأمین/محاسبه شود؟", reply_markup=kb([
-        [("از ثبت «لسیتین روزانه»", "sh_src_from_lec"), ("محاسبه با مدل", "sh_src_model")]
+    await q.message.reply_text("لسیتین (بشکه) از کجا بیاد؟", reply_markup=kb([
+        [("از «لسیتین روزانه» (بخش ۱)", "sh_src_from_lec"), ("ورود دستی بشکه", "sh_src_manual")]
     ]))
     return SHIFT_SOURCE
 
 async def shift_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
-
-    # Expected callbacks:
-    # - sh_src_from_lec  -> use saved "lecithin daily" record for the selected DAY (shift key "0")
-    # - sh_src_model     -> compute lecithin barrels using the model (like section 1), then continue to moisture
-    src = q.data.replace("sh_src_", "")
+    src = q.data.split("_")[-1]
     context.user_data["sh_src"] = src
-
-
-    # اگر سایت قبلاً انتخاب نشده باشد (حالت‌های قدیمی)، اینجا می‌پرسیم.
-    if "site" not in context.user_data:
-        await q.message.reply_text(
-            "ابتدا سایت را انتخاب کنید:",
-            reply_markup=kb([[("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")]]),
-        )
-        return SHIFT_SITE
-
-    if src == "from_lec":
+    if src == "from":
+        # need site+inputs to compute? Actually from saved logs we already have barrels. We'll fetch.
         chat_id = update.effective_chat.id
         data = load_user_data(chat_id).get(LECITHIN_KEY, {})
         day = str(context.user_data["sh_day"])
-
-        # Lecithin daily is saved by DAY only (shift key "0")
-        rec = data.get(day, {}).get("0")
+        sh = str(context.user_data["sh_shift"])
+        rec = data.get(day, {}).get(sh)
         if not rec:
-            await q.message.reply_text(
-                "برای این روز در بخش «لسیتین روزانه» داده‌ای ذخیره نشده. لطفاً گزینه «محاسبه با مدل» را انتخاب کنید.",
-                reply_markup=kb([[("محاسبه با مدل", "sh_src_model")]])
-            )
+            await q.message.reply_text("برای این روز/شیفت در بخش «لسیتین روزانه» داده‌ای ذخیره نشده. گزینه ورود دستی را انتخاب کنید.",
+                                       reply_markup=kb([[("ورود دستی بشکه", "sh_src_manual")]]))
             return SHIFT_SOURCE
-
         context.user_data["barrels"] = float(rec["barrels"])
         context.user_data["ffa"] = float(rec["ffa"])
         context.user_data["ton"] = float(rec["ton"])
         context.user_data["hours"] = float(rec["hours"])
-
+        # Now ask moisture
         await q.message.reply_text("درصد رطوبت گام را وارد کنید (مثلاً 45):")
         return SHIFT_MOISTURE
 
-    # Model path: ask for site + (optional) expander/line, then FFA/ton/hours, then we compute barrels.
-    await q.message.reply_text(
-        "برای محاسبه لسیتین با مدل، ابتدا سایت را انتخاب کنید:",
-        reply_markup=kb([[("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")]])
-    )
-    return SHIFT_SITE
-
-
-async def shift_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Select site for employee evaluation BEFORE choosing day."""
-    q = update.callback_query
-    await q.answer()
-    site = q.data.split("_")[-1]
-    context.user_data["site"] = site
-
-    await q.message.reply_text(
-        "روز را انتخاب کنید:",
-        reply_markup=kb([
-            [(f"روز {i}", f"sh_day_{i}") for i in range(1, 6)],
-            [(f"روز {i}", f"sh_day_{i}") for i in range(6, 11)],
-            [(f"روز {i}", f"sh_day_{i}") for i in range(11, 16)],
-            [(f"روز {i}", f"sh_day_{i}") for i in range(16, 21)],
-            [(f"روز {i}", f"sh_day_{i}") for i in range(21, 26)],
-            [(f"روز {i}", f"sh_day_{i}") for i in range(26, 32)],
-            [("بازگشت ⬅️", "back_main")],
-        ]),
-    )
-    return SHIFT_DAY
-
-
-async def shift_expander(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    q = update.callback_query
-    await q.answer()
-    exp = q.data.split("_")[-1]
-    context.user_data["expander"] = exp
-
-    await q.message.reply_text(
-        "🕹حالت خط را انتخاب کنید:",
-        reply_markup=kb([[("نرمال", "sh_line_Normal"), ("کلزا-سویا", "sh_line_CanolaSoya")]]),
-    )
-    return SHIFT_LINE
-
-
-async def shift_line(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    q = update.callback_query
-    await q.answer()
-    line = q.data.split("_")[-1]
-    context.user_data["lineMode"] = line
-
+    # manual path: we still want ffa/ton/hours for score and record
     await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
     return SHIFT_FFA
-
-
-
 
 async def shift_ffa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -814,25 +821,8 @@ async def shift_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text("ساعت نامعتبر است. دوباره وارد کنید:")
         return SHIFT_HOURS
     context.user_data["hours"] = hours
-
-    # Compute lecithin barrels using the model (same as section 1)
-    site = context.user_data.get("site")
-    exp = context.user_data.get("expander")
-    line = context.user_data.get("lineMode")
-    ffa = float(context.user_data.get("ffa"))
-    ton = float(context.user_data.get("ton"))
-
-    try:
-        barrels = calc_lecithin(site, ffa, ton, hours, exp, line)
-    except Exception as e:
-        await update.message.reply_text(f"خطا در محاسبه لسیتین با مدل: {e}\nلطفاً دوباره ساعات را وارد کنید:")
-        return SHIFT_HOURS
-
-    context.user_data["barrels"] = float(barrels)
-
-    await update.message.reply_text("درصد رطوبت گام را وارد کنید (مثلاً 45):")
-    return SHIFT_MOISTURE
-
+    await update.message.reply_text("لسیتین تولیدی (بشکه) را وارد کنید (مثلاً 44.93):")
+    return SHIFT_BARRELS_MANUAL
 
 async def shift_barrels_manual(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -867,7 +857,7 @@ async def shift_moisture(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     sh = context.user_data["sh_shift"]
 
     msg = (
-        f"👥 ارزیابی عملکرد کارکنان (روز {day} - شیفت {sh})\n"
+        f"👷 عملکرد شیفت (روز {day} - شیفت {sh})\n"
         f"- لسیتین: <b>{barrels:.3f}</b> بشکه\n"
         f"- لسیتین: <b>{metrics['lecithinKg']:.1f}</b> کیلوگرم\n"
         f"- وزن گام: <b>{metrics['gumKg']:.1f}</b> کیلوگرم\n"
@@ -953,6 +943,10 @@ def main() -> None:
     app.add_handler(CommandHandler("export_lecithin", export_lecithin))
     app.add_handler(CommandHandler("export_shifts", export_shifts))
 
+    # Admin utilities
+    app.add_handler(CommandHandler("myid", myid))
+    app.add_handler(CommandHandler("admin_stats", admin_stats))
+
     # Conversation handler
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -971,13 +965,11 @@ def main() -> None:
 
             SHIFT_DAY: [CallbackQueryHandler(shift_day, pattern=r"^sh_day_\d+$")],
             SHIFT_SHIFT: [CallbackQueryHandler(shift_shift, pattern=r"^sh_shift_[123]$")],
-            SHIFT_SOURCE: [CallbackQueryHandler(shift_source, pattern=r"^sh_src_(from_lec|model)$")],
-            SHIFT_SITE: [CallbackQueryHandler(shift_site, pattern=r"^sh_site_(Semnan|Kermanshah)$")],
-            SHIFT_EXPANDER: [CallbackQueryHandler(shift_expander, pattern=r"^sh_exp_(Yes|No)$")],
-            SHIFT_LINE: [CallbackQueryHandler(shift_line, pattern=r"^sh_line_(Normal|CanolaSoya)$")],
+            SHIFT_SOURCE: [CallbackQueryHandler(shift_source, pattern=r"^sh_src_(from_lec|manual)$")],
             SHIFT_FFA: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_ffa)],
             SHIFT_TON: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_ton)],
             SHIFT_HOURS: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_hours)],
+            SHIFT_BARRELS_MANUAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_barrels_manual)],
             SHIFT_MOISTURE: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_moisture)],
             SHIFT_SAVE_CONFIRM: [CallbackQueryHandler(shift_save_confirm, pattern=r"^sh_save_(yes|no)$")],
         },
