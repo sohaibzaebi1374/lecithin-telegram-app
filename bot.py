@@ -327,8 +327,8 @@ def compute_shift_metrics(barrels: float, moisture: float, ffa: float) -> Dict[s
         raise ValueError("درصد رطوبت نامعتبر است (باید بین 0 و 100 باشد).")
     lecithin_kg = barrels * 200.0
     gum_kg = lecithin_kg * 100.0 / (100.0 - moisture)
-    gum_per_hour = gum_kg / 8.0
-    gum_per_min = gum_kg / 480.0
+    gum_per_hour = gum_kg / 24.0
+    gum_per_min = gum_kg / 1440.0
     score = gum_per_min / ffa if ffa and ffa > 0 else float("nan")
     return {
         "lecithinKg": lecithin_kg,
@@ -383,14 +383,18 @@ def kb(rows: List[List[Tuple[str, str]]]) -> InlineKeyboardMarkup:
         for row in rows
     ])
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "سلام! یکی از بخش‌ها را انتخاب کنید:",
+
+async def show_main_menu(message, *, text_prefix: str = "سلام! یکی از بخش‌ها را انتخاب کنید:") -> None:
+    await message.reply_text(
+        text_prefix,
         reply_markup=kb([
-            [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👷 گام و شیفت‌ها", "menu_shift")],
-            [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی شیفت‌ها (Excel)", "export_shifts")]
+            [("🧪 پیش‌بینی روزانه لسیتین", "menu_lecithin"), ("📊 ارزیابی عملکرد کارکنان", "menu_shift")],
+            [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی ارزیابی (Excel)", "export_shifts")]
         ])
     )
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await show_main_menu(update.message)
     return MAIN_MENU
 
 # ---------------------------
@@ -510,14 +514,12 @@ async def export_shifts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
+    if q.data == "restart":
+        context.user_data.clear()
+        await show_main_menu(q.message, text_prefix="🔄 از نو شروع شد. یکی از بخش‌ها را انتخاب کنید:")
+        return MAIN_MENU
     if q.data == "back_main":
-        await q.message.reply_text(
-            "سلام! یکی از بخش‌ها را انتخاب کنید:",
-            reply_markup=kb([
-                [("✅ لسیتین روزانه پیش‌بینی شده", "menu_lecithin"), ("👷 گام و شیفت‌ها", "menu_shift")],
-                [("📤 خروجی لسیتین (Excel)", "export_lecithin"), ("📤 خروجی شیفت‌ها (Excel)", "export_shifts")]
-            ])
-        )
+        await show_main_menu(q.message)
         return MAIN_MENU
     if q.data == "menu_lecithin":
         # Start by collecting inputs first, then ask which day/shift to register.
@@ -525,19 +527,93 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await q.message.reply_text("سایت را انتخاب کنید:", reply_markup=kb([[("سمنان", "lec_site_Semnan"), ("کرمانشاه", "lec_site_Kermanshah")]]))
         return LECITHIN_SITE
     if q.data == "menu_shift":
-        await q.message.reply_text("روز را انتخاب کنید:", reply_markup=kb([[ (f"روز {i}", f"sh_day_{i}") for i in range(1,6) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(6,11) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(11,16) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(16,21) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(21,26) ],
-                                                                          [ (f"روز {i}", f"sh_day_{i}") for i in range(26,31) ]]))
-        return SHIFT_DAY
+        context.user_data.clear()
+        await q.message.reply_text("سایت را انتخاب کنید:", reply_markup=kb([
+            [("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")],
+            [("⬅️ منوی اصلی", "back_main"), ("🔄 شروع مجدد", "restart")]
+        ]))
+        return SHIFT_SITE
     if q.data == "export_lecithin":
         await export_lecithin(update, context)
         return MAIN_MENU
     if q.data == "export_shifts":
         await export_shifts(update, context)
         return MAIN_MENU
+    return MAIN_MENU
+
+
+async def nav_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+    data = q.data
+
+    # Global
+    if data in ("back_main", "restart"):
+        return await menu_router(update, context)
+
+    # Lecithin back steps
+    if data == "lec_back_site":
+        await q.message.reply_text("سایت را انتخاب کنید:", reply_markup=kb([[('سمنان', 'lec_site_Semnan'), ('کرمانشاه', 'lec_site_Kermanshah')],[('⬅️ منوی اصلی','back_main'),('🔄 شروع مجدد','restart')]]))
+        return LECITHIN_SITE
+
+    if data == "lec_back_expander":
+        await q.message.reply_text("اکسپندر در مدار هست؟", reply_markup=kb([
+            [("بله", "lec_exp_Yes"), ("خیر", "lec_exp_No")],
+            [("⬅️ مرحله قبل", "lec_back_site"), ("🔄 شروع مجدد", "restart")],
+            [("⬅️ منوی اصلی", "back_main")]
+        ]))
+        return LECITHIN_EXPANDER
+
+    if data == "lec_back_line":
+        await q.message.reply_text("خط را انتخاب کنید:", reply_markup=kb([
+            [("نرمال", "lec_line_Normal"), ("کلزا/سویا", "lec_line_CanolaSoya")],
+            [("⬅️ مرحله قبل", "lec_back_expander"), ("🔄 شروع مجدد", "restart")],
+            [("⬅️ منوی اصلی", "back_main")]
+        ]))
+        return LECITHIN_LINE
+
+    if data == "lec_back_ffa":
+        await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):", reply_markup=kb([[('⬅️ مرحله قبل','lec_back_line'),('🔄 شروع مجدد','restart')],[('⬅️ منوی اصلی','back_main')]]))
+        return LECITHIN_FFA
+
+    if data == "lec_back_ton":
+        await q.message.reply_text("🛢 تناژ روغن را وارد کنید (مثلاً 120):", reply_markup=kb([[('⬅️ مرحله قبل','lec_back_ffa'),('🔄 شروع مجدد','restart')],[('⬅️ منوی اصلی','back_main')]]))
+        return LECITHIN_TON
+
+    if data == "lec_back_hours":
+        await q.message.reply_text("ساعات تولید را وارد کنید (مثلاً 8):",
+                                   reply_markup=kb([[("🔄 شروع مجدد", "restart"), ("⬅️ منوی اصلی", "back_main")]]))
+        return LECITHIN_HOURS
+
+    # Shift back steps
+    if data == "sh_back_site":
+        await q.message.reply_text("سایت را انتخاب کنید:", reply_markup=kb([
+            [("سمنان", "sh_site_Semnan"), ("کرمانشاه", "sh_site_Kermanshah")],
+            [("⬅️ منوی اصلی", "back_main"), ("🔄 شروع مجدد", "restart")]
+        ]))
+        return SHIFT_SITE
+    if data == "sh_back_day":
+        # show day picker again
+        await q.message.reply_text("روز را انتخاب کنید:", reply_markup=kb([
+            [(f"روز {i}", f"sh_day_{i}") for i in range(1,6)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(6,11)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(11,16)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(16,21)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(21,26)],
+            [(f"روز {i}", f"sh_day_{i}") for i in range(26,32)],
+            [("⬅️ مرحله قبل", "sh_back_site"), ("🔄 شروع مجدد", "restart")],
+            [("⬅️ منوی اصلی", "back_main")]
+        ]))
+        return SHIFT_DAY
+    if data == "sh_back_shift":
+        # show shift picker again
+        await q.message.reply_text("شیفت را انتخاب کنید:", reply_markup=kb([
+            [("شیفت 1", "sh_shift_1"), ("شیفت 2", "sh_shift_2"), ("شیفت 3", "sh_shift_3")],
+            [("⬅️ مرحله قبل", "sh_back_day"), ("🔄 شروع مجدد", "restart")],
+            [("⬅️ منوی اصلی", "back_main")]
+        ]))
+        return SHIFT_SHIFT
+
     return MAIN_MENU
 
 # ---------------------------
@@ -548,8 +624,46 @@ async def lecithin_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     await q.answer()
     day = int(q.data.split("_")[-1])
     context.user_data["lec_day"] = day
-    await q.message.reply_text("شیفت را انتخاب کنید:", reply_markup=kb([[("شیفت 1", "lec_shift_1"), ("شیفت 2", "lec_shift_2"), ("شیفت 3", "lec_shift_3")]]))
-    return LECITHIN_SHIFT
+
+    pending = context.user_data.get("pending_lecithin")
+    if not pending:
+        await q.message.reply_text("اطلاعات محاسبه پیدا نشد. لطفاً دوباره از /start شروع کنید.", reply_markup=kb([[("⬅️ منوی اصلی", "back_main")]]))
+        return MAIN_MENU
+
+    # Save immediately (بدون شیفت)
+    chat_id = update.effective_chat.id
+    user_data = load_user_data(chat_id)
+    lec = user_data.get(LECITHIN_KEY, {})
+    day_key = str(day)
+    sh_key = ""  # بدون شیفت
+    lec.setdefault(day_key, {})
+    lec[day_key][sh_key] = {
+        "site": pending.get("site"),
+        "expander": pending.get("expander"),
+        "lineMode": pending.get("lineMode"),
+        "ffa": pending.get("ffa"),
+        "ton": pending.get("ton"),
+        "hours": pending.get("hours"),
+        "barrels": pending.get("barrels"),
+    }
+    user_data[LECITHIN_KEY] = lec
+    save_user_data(chat_id, user_data)
+
+    barrels = float(pending.get("barrels") or 0.0)
+    ton = float(pending.get("ton") or 0.0)
+    kg = barrels * 200.0
+    kg_per_ton = (kg / ton) if ton else 0.0
+
+    await q.message.reply_text(
+        f"✅ ثبت شد (روز {day})\n\n"
+        f"لسیتین: {barrels:.3f} بشکه | {kg:.1f} کیلوگرم | {kg_per_ton:.2f} کیلوگرم/تن\n\n"
+        f"برای شروع مجدد از همین بخش می‌توانید /start را بزنید.",
+        reply_markup=kb([[("⬅️ منوی اصلی", "back_main"), ("🔄 شروع مجدد", "restart")]])
+    )
+    context.user_data.pop("pending_lecithin", None)
+    return MAIN_MENU
+
+
 
 async def lecithin_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
@@ -614,7 +728,7 @@ async def lecithin_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     # Semnan: no expander / line mode step
     context.user_data["expander"] = None
     context.user_data["lineMode"] = None
-    await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
+    await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):", reply_markup=kb([[("⬅️ مرحله قبل", "lec_back_site"), ("🔄 شروع مجدد", "restart")],[("⬅️ منوی اصلی", "back_main")]]))
     return LECITHIN_FFA
 
 async def lecithin_expander(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -630,7 +744,7 @@ async def lecithin_line(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await q.answer()
     line = q.data.split("_")[-1]
     context.user_data["lineMode"] = line
-    await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
+    await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):", reply_markup=kb([[("⬅️ مرحله قبل", "lec_back_site"), ("🔄 شروع مجدد", "restart")],[("⬅️ منوی اصلی", "back_main")]]))
     return LECITHIN_FFA
 
 async def lecithin_ffa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -640,7 +754,7 @@ async def lecithin_ffa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         await update.message.reply_text("FFA نامعتبر است. دوباره وارد کنید:")
         return LECITHIN_FFA
     context.user_data["ffa"] = ffa
-    await update.message.reply_text("🛢 تناژ روغن را وارد کنید (مثلاً 120ton):")
+    await update.message.reply_text("🛢 تناژ روغن را وارد کنید (مثلاً 120):", reply_markup=kb([[("⬅️ مرحله قبل", "lec_back_ffa"), ("🔄 شروع مجدد", "restart")],[("⬅️ منوی اصلی", "back_main")]]))
     return LECITHIN_TON
 
 async def lecithin_ton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -710,7 +824,7 @@ async def lecithin_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             [(f"روز {i}", f"lec_day_{i}") for i in range(11,16)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(16,21)],
             [(f"روز {i}", f"lec_day_{i}") for i in range(21,26)],
-            [(f"روز {i}", f"lec_day_{i}") for i in range(26,31)],
+            [(f"روز {i}", f"lec_day_{i}") for i in range(26,32)],
         ])
     )
     return LECITHIN_DAY
@@ -747,12 +861,33 @@ async def lecithin_save_confirm(update: Update, context: ContextTypes.DEFAULT_TY
 # ---------------------------
 # Shift flow
 # ---------------------------
+
+async def shift_site(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    q = update.callback_query
+    await q.answer()
+    site = q.data.split("_")[-1]
+    context.user_data["site"] = site
+    await q.message.reply_text("روز را انتخاب کنید:", reply_markup=kb([
+        [(f"روز {i}", f"sh_day_{i}") for i in range(1,6)],
+        [(f"روز {i}", f"sh_day_{i}") for i in range(6,11)],
+        [(f"روز {i}", f"sh_day_{i}") for i in range(11,16)],
+        [(f"روز {i}", f"sh_day_{i}") for i in range(16,21)],
+        [(f"روز {i}", f"sh_day_{i}") for i in range(21,26)],
+        [(f"روز {i}", f"sh_day_{i}") for i in range(26,32)],
+        [("⬅️ مرحله قبل", "sh_back_site"), ("🔄 شروع مجدد", "restart")],
+        [("⬅️ منوی اصلی", "back_main")]
+    ]))
+    return SHIFT_DAY
 async def shift_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
     day = int(q.data.split("_")[-1])
     context.user_data["sh_day"] = day
-    await q.message.reply_text("شیفت را انتخاب کنید:", reply_markup=kb([[("شیفت 1", "sh_shift_1"), ("شیفت 2", "sh_shift_2"), ("شیفت 3", "sh_shift_3")]]))
+    await q.message.reply_text("شیفت را انتخاب کنید:", reply_markup=kb([
+        [("شیفت 1", "sh_shift_1"), ("شیفت 2", "sh_shift_2"), ("شیفت 3", "sh_shift_3")],
+        [("⬅️ مرحله قبل", "sh_back_day"), ("🔄 شروع مجدد", "restart")],
+        [("⬅️ منوی اصلی", "back_main")]
+    ]))
     return SHIFT_SHIFT
 
 async def shift_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -762,37 +897,66 @@ async def shift_shift(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     context.user_data["sh_shift"] = sh
 
     await q.message.reply_text("لسیتین (بشکه) از کجا بیاد؟", reply_markup=kb([
-        [("از «لسیتین روزانه» (بخش ۱)", "sh_src_from_lec"), ("ورود دستی بشکه", "sh_src_manual")]
+        [("از «پیش‌بینی روزانه لسیتین»", "sh_src_from_lec"), ("ورودی دسته بشکه (فقط تعداد بشکه)", "sh_src_manual_only")],
+        [("⬅️ مرحله قبل", "sh_back_shift"), ("🔄 شروع مجدد", "restart")],
+        [("⬅️ منوی اصلی", "back_main")]
     ]))
     return SHIFT_SOURCE
 
 async def shift_source(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     q = update.callback_query
     await q.answer()
-    src = q.data.split("_")[-1]
+    src = q.data.replace("sh_src_", "")  # from_lec | manual_only
     context.user_data["sh_src"] = src
-    if src == "from":
-        # need site+inputs to compute? Actually from saved logs we already have barrels. We'll fetch.
+
+    if src == "from_lec":
         chat_id = update.effective_chat.id
         data = load_user_data(chat_id).get(LECITHIN_KEY, {})
-        day = str(context.user_data["sh_day"])
-        sh = str(context.user_data["sh_shift"])
-        rec = data.get(day, {}).get(sh)
+        day_key = str(context.user_data.get("sh_day"))
+
+        day_rec = data.get(day_key, {})
+        rec = None
+        # Prefer daily record (بدون شیفت)
+        if "" in day_rec:
+            rec = day_rec.get("")
+        elif day_rec:
+            # take first available
+            rec = next(iter(day_rec.values()))
         if not rec:
-            await q.message.reply_text("برای این روز/شیفت در بخش «لسیتین روزانه» داده‌ای ذخیره نشده. گزینه ورود دستی را انتخاب کنید.",
-                                       reply_markup=kb([[("ورود دستی بشکه", "sh_src_manual")]]))
+            await q.message.reply_text(
+                "برای این روز در بخش «پیش‌بینی روزانه لسیتین» داده‌ای ثبت نشده. گزینه «ورودی دسته بشکه» را انتخاب کنید.",
+                reply_markup=kb([[("ورودی دسته بشکه (فقط تعداد بشکه)", "sh_src_manual_only")],
+                                 [("⬅️ مرحله قبل", "sh_back_shift"), ("🔄 شروع مجدد", "restart")],
+                                 [("⬅️ منوی اصلی", "back_main")]])
+            )
             return SHIFT_SOURCE
-        context.user_data["barrels"] = float(rec["barrels"])
-        context.user_data["ffa"] = float(rec["ffa"])
-        context.user_data["ton"] = float(rec["ton"])
-        context.user_data["hours"] = float(rec["hours"])
-        # Now ask moisture
-        await q.message.reply_text("درصد رطوبت گام را وارد کنید (مثلاً 45):")
+
+        context.user_data["barrels"] = float(rec.get("barrels") or 0.0)
+        # اگر ffa موجود بود برای امتیاز استفاده می‌کنیم
+        ffa_val = rec.get("ffa")
+        try:
+            context.user_data["ffa"] = float(ffa_val) if ffa_val is not None else None
+        except Exception:
+            context.user_data["ffa"] = None
+
+        await q.message.reply_text(
+            "درصد رطوبت گام را وارد کنید (مثلاً 45):",
+            reply_markup=kb([[("⬅️ مرحله قبل", "sh_back_shift"), ("🔄 شروع مجدد", "restart")],
+                             [("⬅️ منوی اصلی", "back_main")]])
+        )
         return SHIFT_MOISTURE
 
-    # manual path: we still want ffa/ton/hours for score and record
-    await q.message.reply_text("FFA را وارد کنید (مثلاً 1.8):")
-    return SHIFT_FFA
+    # manual_only: فقط تعداد بشکه
+    await q.message.reply_text(
+        "تعداد بشکه لسیتین را وارد کنید (مثلاً 44.93):",
+        reply_markup=kb([[("⬅️ مرحله قبل", "sh_back_shift"), ("🔄 شروع مجدد", "restart")],
+                         [("⬅️ منوی اصلی", "back_main")]])
+    )
+    # ffa را در این حالت نداریم
+    context.user_data["ffa"] = None
+    return SHIFT_BARRELS_MANUAL
+
+
 
 async def shift_ffa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
@@ -801,7 +965,7 @@ async def shift_ffa(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("FFA نامعتبر است. دوباره وارد کنید:")
         return SHIFT_FFA
     context.user_data["ffa"] = ffa
-    await update.message.reply_text("🛢 تناژ روغن را وارد کنید (مثلاً 120ton):")
+    await update.message.reply_text("🛢 تناژ روغن را وارد کنید (مثلاً 120):", reply_markup=kb([[("⬅️ مرحله قبل", "lec_back_ffa"), ("🔄 شروع مجدد", "restart")],[("⬅️ منوی اصلی", "back_main")]]))
     return SHIFT_TON
 
 async def shift_ton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -811,7 +975,7 @@ async def shift_ton(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("تناژ نامعتبر است. دوباره وارد کنید:")
         return SHIFT_TON
     context.user_data["ton"] = ton
-    await update.message.reply_text("ساعات تولید را وارد کنید (مثلاً 8):")
+    await update.message.reply_text("ساعات تولید را وارد کنید (مثلاً 8):", reply_markup=kb([[("⬅️ مرحله قبل", "lec_back_ton"), ("🔄 شروع مجدد", "restart")],[("⬅️ منوی اصلی", "back_main")]]))
     return SHIFT_HOURS
 
 async def shift_hours(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -842,7 +1006,8 @@ async def shift_moisture(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return SHIFT_MOISTURE
 
     context.user_data["moisture"] = moisture
-    ffa = float(context.user_data["ffa"])
+    ffa_raw = context.user_data.get("ffa")
+    ffa = float(ffa_raw) if ffa_raw not in (None, "") else 0.0
     barrels = float(context.user_data["barrels"])
 
     try:
@@ -852,6 +1017,11 @@ async def shift_moisture(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return SHIFT_MOISTURE
 
     status = moisture_comment(moisture)
+
+    score_line = (
+        f"- امتیاز (گام/دقیقه ÷ FFA): <b>{metrics['score']:.4f}</b>" if not math.isnan(metrics['score'])
+        else "- امتیاز: <b>-</b>"
+    )
 
     day = context.user_data["sh_day"]
     sh = context.user_data["sh_shift"]
@@ -864,14 +1034,15 @@ async def shift_moisture(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"- گام/ساعت: <b>{metrics['gumKgPerHour']:.2f}</b> kg/h\n"
         f"- گام/دقیقه: <b>{metrics['gumKgPerMin']:.3f}</b> kg/min\n"
         f"- وضعیت رطوبت: {status}\n"
-        f"- امتیاز (گام/دقیقه ÷ FFA): <b>{metrics['score']:.4f}</b>\n\n"
+        f"{score_line}\n\n"
         f"ذخیره شود؟"
     )
-    context.user_data["metrics"] = metrics
+    context.user_data["metrics"] = metrics = metrics
     context.user_data["moistureStatus"] = status
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML,
-                                   reply_markup=kb([[("💾 ذخیره", "sh_save_yes"), ("❌ نه", "sh_save_no")]]))
+                                   reply_markup=kb([[("💾 ذخیره", "sh_save_yes"), ("❌ نه", "sh_save_no")],
+                                                 [("🔄 شروع مجدد", "restart"), ("⬅️ منوی اصلی", "back_main")]]))
     return SHIFT_SAVE_CONFIRM
 
 async def shift_save_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -953,25 +1124,26 @@ def main() -> None:
         states={
             MAIN_MENU: [CallbackQueryHandler(menu_router)],
 
-            LECITHIN_DAY: [CallbackQueryHandler(lecithin_day, pattern=r"^lec_day_\d+$")],
-            LECITHIN_SHIFT: [CallbackQueryHandler(lecithin_shift, pattern=r"^lec_shift_[123]$")],
-            LECITHIN_SITE: [CallbackQueryHandler(lecithin_site, pattern=r"^lec_site_(Semnan|Kermanshah)$")],
-            LECITHIN_EXPANDER: [CallbackQueryHandler(lecithin_expander, pattern=r"^lec_exp_(Yes|No)$")],
-            LECITHIN_LINE: [CallbackQueryHandler(lecithin_line, pattern=r"^lec_line_(Normal|CanolaSoya)$")],
+            LECITHIN_DAY: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(lecithin_day, pattern=r"^lec_day_\d+$")],
+            LECITHIN_SITE: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(lecithin_site, pattern=r"^lec_site_(Semnan|Kermanshah)$")],
+            LECITHIN_EXPANDER: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(lecithin_expander, pattern=r"^lec_exp_(Yes|No)$")],
+            LECITHIN_LINE: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(lecithin_line, pattern=r"^lec_line_(Normal|CanolaSoya)$")],
             LECITHIN_FFA: [MessageHandler(filters.TEXT & ~filters.COMMAND, lecithin_ffa)],
             LECITHIN_TON: [MessageHandler(filters.TEXT & ~filters.COMMAND, lecithin_ton)],
-            LECITHIN_HOURS: [MessageHandler(filters.TEXT & ~filters.COMMAND, lecithin_hours)],
+            LECITHIN_HOURS: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours)$'), MessageHandler(filters.TEXT & ~filters.COMMAND, lecithin_hours)],
             LECITHIN_SAVE_CONFIRM: [CallbackQueryHandler(lecithin_save_confirm, pattern=r"^lec_save_(yes|no)$")],
 
-            SHIFT_DAY: [CallbackQueryHandler(shift_day, pattern=r"^sh_day_\d+$")],
-            SHIFT_SHIFT: [CallbackQueryHandler(shift_shift, pattern=r"^sh_shift_[123]$")],
-            SHIFT_SOURCE: [CallbackQueryHandler(shift_source, pattern=r"^sh_src_(from_lec|manual)$")],
+            SHIFT_SITE: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(shift_site, pattern=r"^sh_site_(Semnan|Kermanshah)$")],
+
+            SHIFT_DAY: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(shift_day, pattern=r"^sh_day_\d+$")],
+            SHIFT_SHIFT: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(shift_shift, pattern=r"^sh_shift_[123]$")],
+            SHIFT_SOURCE: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(shift_source, pattern=r"^sh_src_(from_lec|manual_only)$")],
             SHIFT_FFA: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_ffa)],
             SHIFT_TON: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_ton)],
             SHIFT_HOURS: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_hours)],
-            SHIFT_BARRELS_MANUAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_barrels_manual)],
-            SHIFT_MOISTURE: [MessageHandler(filters.TEXT & ~filters.COMMAND, shift_moisture)],
-            SHIFT_SAVE_CONFIRM: [CallbackQueryHandler(shift_save_confirm, pattern=r"^sh_save_(yes|no)$")],
+            SHIFT_BARRELS_MANUAL: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|sh_back_shift)$'), MessageHandler(filters.TEXT & ~filters.COMMAND, shift_barrels_manual)],
+            SHIFT_MOISTURE: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|sh_back_shift|sh_back_day|sh_back_site)$'), MessageHandler(filters.TEXT & ~filters.COMMAND, shift_moisture)],
+            SHIFT_SAVE_CONFIRM: [CallbackQueryHandler(nav_router, pattern=r'^(back_main|restart|lec_back_site|lec_back_expander|lec_back_line|lec_back_ffa|lec_back_ton|lec_back_hours|sh_back_site|sh_back_day|sh_back_shift)$'), CallbackQueryHandler(shift_save_confirm, pattern=r"^sh_save_(yes|no)$")],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
         allow_reentry=True,
